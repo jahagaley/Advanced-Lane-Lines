@@ -198,20 +198,13 @@ def fit_polynomial(binary_warped, M, IM, image, undist):
         left_fitx = 1*ploty**2 + 1*ploty
         right_fitx = 1*ploty**2 + 1*ploty
 
-    ## Visualization ##
-    # Colors in the left and right lane regions
-    #out_img[lefty, leftx] = [255, 0, 0]
-    #out_img[righty, rightx] = [0, 0, 255]
-
     ym_per_pix = 30/720 # meters per pixel in y dimension
     xm_per_pix = 3.7/700 # meters per pixel in x dimension
 
     # Plots the left and right polynomials on the lane lines
-    plt.plot(left_fitx, ploty, color='yellow')
-    plt.plot(right_fitx, ploty, color='yellow')
+    #plt.plot(left_fitx, ploty, color='yellow')
+    #plt.plot(right_fitx, ploty, color='yellow')
     
-    
-
     # Define y-value where we want radius of curvature
     # We'll choose the maximum y-value, corresponding to the bottom of the image
     y_eval = np.max(ploty)
@@ -220,19 +213,11 @@ def fit_polynomial(binary_warped, M, IM, image, undist):
     # Create an image to draw the lines on
     warp_zero = np.zeros_like(binary_warped).astype(np.uint8)
     color_warp = np.dstack((binary_warped, binary_warped, binary_warped))
-
-    # Recast the x and y points into usable format for cv2.fillPoly()
-    pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
-    pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
-    pts = np.hstack((pts_left, pts_right))
     
 
     return left_fit,right_fit,left_fitx, right_fitx, color_warp
 
 def draw_back_onto_the_road(img_undistorted, Minv, left_fit, right_fit):
-  
-    plt.imshow(img_undistorted, cmap='gray')
-    plt.show()
     
     height, width, _ = img_undistorted.shape
 
@@ -257,9 +242,8 @@ def draw_back_onto_the_road(img_undistorted, Minv, left_fit, right_fit):
         h, w, c = img.shape
 
         plot_y = np.linspace(0, h - 1, h)
-        coeffs = fitting
 
-        line_center = coeffs[0] * plot_y ** 2 + coeffs[1] * plot_y + coeffs[2]
+        line_center = fitting[0] * plot_y ** 2 + fitting[1] * plot_y + fitting[2]
         line_left_side = line_center - line_width // 2
         line_right_side = line_center + line_width // 2
 
@@ -271,13 +255,15 @@ def draw_back_onto_the_road(img_undistorted, Minv, left_fit, right_fit):
         # Draw the lane onto the warped blank image
         return cv2.fillPoly(img, [np.int32(pts)], color)
 
+    
 
     # now separately draw solid lines to highlight them
     line_warp = np.zeros_like(img_undistorted)
-    line_warp = draw(line_warp, left_fitx,color=(255, 0, 0))
-    line_warp = draw(line_warp, right_fitx, color=(0, 0, 255))
+    line_warp = draw(line_warp, left_fit,color=(255, 0, 0))
+    line_warp = draw(line_warp, right_fit, color=(0, 0, 255))
     
     line_dewarped = cv2.warpPerspective(line_warp, Minv, (width, height))
+
 
     lines_mask = blend_onto_road.copy()
     idx = np.any([line_dewarped != 0][0], axis=2)
@@ -305,6 +291,7 @@ def binary():
         undistorted = undistort(img)
 
         undistort_clean = copy.deepcopy(undistorted)
+
 
         # Convert to HLS color space and separate the V channel
         hls = cv2.cvtColor(undistorted, cv2.COLOR_RGB2HLS)
@@ -346,8 +333,6 @@ def binary():
 
         left_fit, right_fit, left, right, pic= fit_polynomial(unwarped, M, Minv, img, undistorted)
 
-        plt.imshow(undistort_clean, cmap='gray')
-        plt.show()
         output = draw_back_onto_the_road(undistort_clean, Minv, left_fit, right_fit)
        
         plt.imshow(output, cmap='gray')
