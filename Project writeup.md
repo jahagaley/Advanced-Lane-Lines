@@ -117,13 +117,12 @@ def draw(img, fitting, color=(255, 0, 0), line_width=30):
     line_left_side = line_center - line_width // 2
     line_right_side = line_center + line_width // 2
 
-    # Some magic here to recast the x and y points into usable format for cv2.fillPoly()
     pts_left = np.array(list(zip(line_left_side, plot_y)))
     pts_right = np.array(np.flipud(list(zip(line_right_side, plot_y))))
     pts = np.vstack([pts_left, pts_right])
 
 
-    # Draw the lane onto the warped blank image
+    # Drawing the lane onto the warped blank image
     return cv2.fillPoly(img, [np.int32(pts)], color)
 ```
 

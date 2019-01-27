@@ -268,16 +268,15 @@ def fitLinesOnRoad(img_undistorted, Minv, left_fit, right_fit):
         line_left_side = line_center - line_width // 2
         line_right_side = line_center + line_width // 2
 
-        # Some magic here to recast the x and y points into usable format for cv2.fillPoly()
         pts_left = np.array(list(zip(line_left_side, plot_y)))
         pts_right = np.array(np.flipud(list(zip(line_right_side, plot_y))))
         pts = np.vstack([pts_left, pts_right])
 
 
-        # Draw the lane onto the warped blank image
+        # Drawing the lane onto the warped blank image
         return cv2.fillPoly(img, [np.int32(pts)], color)
 
-    # now separately draw solid lines to highlight them
+
     line_warp = np.zeros_like(img_undistorted)
     line_warp = draw(line_warp, left_fit,color=(255, 0, 0))
     line_warp = draw(line_warp, right_fit, color=(0, 0, 255))
@@ -289,9 +288,9 @@ def fitLinesOnRoad(img_undistorted, Minv, left_fit, right_fit):
     idx = np.any([line_dewarped != 0][0], axis=2)
     lines_mask[idx] = line_dewarped[idx]
 
-    blend_onto_road = cv2.addWeighted(src1=lines_mask, alpha=0.8, src2=blend_onto_road, beta=0.5, gamma=0.)
+    output = cv2.addWeighted(src1=lines_mask, alpha=0.8, src2=blend_onto_road, beta=0.5, gamma=0.)
 
-    return blend_onto_road
+    return output
    
 
 def processPipeline(img): 
