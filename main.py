@@ -4,16 +4,58 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import os
 import copy
+from moviepy.editor import VideoFileClip
 
 objpoints = []
 imgpoints = []
 nx = 9
 ny = 6
+ym_per_pix = 30/720 # meters per pixel in y dimension
+xm_per_pix = 3.7/700 # meters per pixel in x dimension
 
-def colorThresh(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
-    img = np.copy(img)
+
+def undistort(img):
+
+    global objpoints
+    global imgpoints
+    
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
+    
+    dst = cv2.undistort(img, mtx, dist, None, mtx)
+    
+    return dst
+
+
+def warp(undist, img):
+
+    h, w = img.shape[:2]
+
+    src = np.float32([[w, h-10],    
+                    [0, h-10],    
+                    [546, 460],   
+                    [732, 460]])  
+    dst = np.float32([[w, h],       
+                    [0, h],       
+                    [0, 0],       
+                    [w, 0]]) 
+                                    
+    M = cv2.getPerspectiveTransform(src, dst)
+    Minv = cv2.getPerspectiveTransform(dst, src)
+    warped = cv2.warpPerspective(undist, M, (w,h))
+
+    return warped, M, Minv
+
+
+def combinedBinary(undistorted):
+
+    thresh=(90, 255)
+    s_thresh=(170, 255)
+    sx_thresh=(20, 100)
+
     # Convert to HLS color space and separate the V channel
-    hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
+    hls = cv2.cvtColor(undistorted, cv2.COLOR_RGB2HLS)
     l_channel = hls[:,:,1]
     s_channel = hls[:,:,2]
     # Sobel x
@@ -30,30 +72,12 @@ def colorThresh(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
     s_binary[(s_channel >= s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
     # Stack each channel
     color_binary = np.dstack(( np.zeros_like(sxbinary), sxbinary, s_binary)) * 255
-    return color_binary
 
-def undistort(img):
+    combined_binary = np.zeros_like(sxbinary)
+    combined_binary[(s_binary == 1) | (sxbinary == 1)] = 1
 
-    global objpoints
-    global imgpoints
+    return combined_binary
     
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
-    
-    dst = cv2.undistort(img, mtx, dist, None, mtx)
-    
-    return dst
-
-
-def unwarp(undist, src, dst,img_size):
-                                    
-    M = cv2.getPerspectiveTransform(src, dst)
-    Minv = cv2.getPerspectiveTransform(dst, src)
-    warped = cv2.warpPerspective(undist, M, img_size)
-
-    return warped, M, Minv
-
 def calibrateCamera():
 
     global objpoints
@@ -94,10 +118,10 @@ def calibrateCamera():
                                             [img_size[0]-offset, img_size[1]-offset], 
                                             [offset, img_size[1]-offset]])
 
-            unwarped = unwarp(undistorted, src, dst, img_size)
-            #cv2.imwrite('temp/'+name,unwarped)
+            # This is the warped chess board as a output for testing
+            #warped = warp(undistorted, src, dst, img_size)
 
-def find_lane_pixels(binary_warped):
+def findLanePixels(binary_warped):
     # Take a histogram of the bottom half of the image
     histogram = np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis=0)
     # Create an output image to draw on and visualize the result
@@ -179,45 +203,50 @@ def find_lane_pixels(binary_warped):
     return leftx, lefty, rightx, righty, out_img
 
 
-def fit_polynomial(binary_warped, M, IM, image, undist):
+def fitPolynomial(binary_warped, M, IM, image, undist):
+    
+    global xm_per_pix
+    global ym_per_pix
+
     # Find our lane pixels first
-    leftx, lefty, rightx, righty, out_img = find_lane_pixels(binary_warped) 
+    leftx, lefty, rightx, righty, out_img = findLanePixels(binary_warped) 
+
+    y_eval = 0
 
     # Fit a second order polynomial to each using `np.polyfit`
     left_fit = np.polyfit(lefty, leftx, 2)
     right_fit = np.polyfit(righty, rightx, 2)
 
-    # Generate x and y values for plotting
-    ploty = np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0] )
-    try:
-        left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
-        right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
-    except TypeError:
-        # Avoids an error if `left` and `right_fit` are still none or incorrect
-        print('The function failed to fit a line!')
-        left_fitx = 1*ploty**2 + 1*ploty
-        right_fitx = 1*ploty**2 + 1*ploty
+    left_fit_cr = np.polyfit(lefty * ym_per_pix, leftx * xm_per_pix, 2)
+    right_fit_cr = np.polyfit(righty * ym_per_pix, rightx * xm_per_pix, 2)
 
-    ym_per_pix = 30/720 # meters per pixel in y dimension
-    xm_per_pix = 3.7/700 # meters per pixel in x dimension
-
-    # Plots the left and right polynomials on the lane lines
-    #plt.plot(left_fitx, ploty, color='yellow')
-    #plt.plot(right_fitx, ploty, color='yellow')
+    left_curverad = ((1 + (2*left_fit_cr[0]*y_eval + left_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0]) ## Implement the calculation of the left line here
+    right_curverad =  ((1 + (2*right_fit_cr[0]*y_eval + right_fit_cr[1])**2)**1.5) / np.absolute(2*right_fit_cr[0])  ## Implement the calculation of the right line here
     
-    # Define y-value where we want radius of curvature
-    # We'll choose the maximum y-value, corresponding to the bottom of the image
-    y_eval = np.max(ploty)
+    center_offset = offsetFromCenter(leftx, lefty, rightx, righty, image.shape[1] )
+
+    return left_fit, right_fit,left_curverad, right_curverad, center_offset
+
     
 
-    # Create an image to draw the lines on
-    warp_zero = np.zeros_like(binary_warped).astype(np.uint8)
-    color_warp = np.dstack((binary_warped, binary_warped, binary_warped))
+def offsetFromCenter(leftx,lefty, rightx, righty, frame_width):
     
+    global xm_per_pix
+    global ym_per_pix
 
-    return left_fit,right_fit,left_fitx, right_fitx, color_warp
+    # found an awesome tutorial on computing this offset!
+    left_bottom = np.mean(leftx[lefty > 0.95 * np.max(lefty)])
+    right_bottom = np.mean(rightx[righty > 0.95 * np.max(righty)])
 
-def draw_back_onto_the_road(img_undistorted, Minv, left_fit, right_fit):
+    lane_width = right_bottom - left_bottom
+    midpoint = frame_width / 2
+
+    offset_pix = abs((left_bottom + lane_width / 2) - midpoint)
+    offset_meter = xm_per_pix * offset_pix
+
+    return offset_meter
+
+def fitLinesOnRoad(img_undistorted, Minv, left_fit, right_fit):
     
     height, width, _ = img_undistorted.shape
 
@@ -252,10 +281,9 @@ def draw_back_onto_the_road(img_undistorted, Minv, left_fit, right_fit):
         pts_right = np.array(np.flipud(list(zip(line_right_side, plot_y))))
         pts = np.vstack([pts_left, pts_right])
 
+
         # Draw the lane onto the warped blank image
         return cv2.fillPoly(img, [np.int32(pts)], color)
-
-    
 
     # now separately draw solid lines to highlight them
     line_warp = np.zeros_like(img_undistorted)
@@ -274,75 +302,60 @@ def draw_back_onto_the_road(img_undistorted, Minv, left_fit, right_fit):
     return blend_onto_road
    
 
-def binary():
+def processPipeline(img): 
 
-    thresh=(90, 255)
-    s_thresh=(170, 255)
-    sx_thresh=(20, 100)
+    undistorted = undistort(img)
+
+    combined_binary = combinedBinary(undistorted) 
+
+    warped, M, Minv = warp(combined_binary, img)  
+
+    left_fit, right_fit, left_radius, right_radius, center_offset = fitPolynomial(warped, M, Minv, img, undistorted)
+
+    final_output = fitLinesOnRoad(undistorted, Minv, left_fit, right_fit)
+
+    mean_curvature = np.mean([left_radius, right_radius])
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    cv2.putText(final_output, 'Lane curvature radius: {:.02f}m'.format(mean_curvature), (50, 60), font, 2, (255, 255, 255), 2, cv2.LINE_AA)
+    cv2.putText(final_output, 'Vehicle offset from center: {:.02f}m'.format(center_offset), (50, 130), font, 2, (255, 255, 255), 2, cv2.LINE_AA)
+
+    return final_output
+
+def testImagesProcessing():
 
     path = 'test_images/'
     files = os.listdir(path)
 
+    output_path = "output_images/"
 
     for name in files:        
 
         img = mpimg.imread(path+name)
 
-        undistorted = undistort(img)
+        final_output = processPipeline(img)
 
-        undistort_clean = copy.deepcopy(undistorted)
+        plt.imsave(output_path+name, final_output)
 
+def testVideosProcessing():
 
-        # Convert to HLS color space and separate the V channel
-        hls = cv2.cvtColor(undistorted, cv2.COLOR_RGB2HLS)
-        l_channel = hls[:,:,1]
-        s_channel = hls[:,:,2]
-        # Sobel x
-        sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0) # Take the derivative in x
-        abs_sobelx = np.absolute(sobelx) # Absolute x derivative to accentuate lines away from horizontal
-        scaled_sobel = np.uint8(255*abs_sobelx/np.max(abs_sobelx))
+    videos = ["project_video.mp4","challenge_video.mp4","harder_challenge_video.mp4"]
+
+    for video in videos:
+        white_output = "output_videos/"+video
+
+        print("Processing video " + video + " now.")
+        clip1 = VideoFileClip(video)
+        white_clip = clip1.fl_image(processPipeline) 
+        white_clip.write_videofile(white_output, audio=False)
         
-        # Threshold x gradient
-        sxbinary = np.zeros_like(scaled_sobel)
-        sxbinary[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
-        
-        # Threshold color channel
-        s_binary = np.zeros_like(s_channel)
-        s_binary[(s_channel >= s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
-        # Stack each channel
-        color_binary = np.dstack(( np.zeros_like(sxbinary), sxbinary, s_binary)) * 255
-
-        combined_binary = np.zeros_like(sxbinary)
-        combined_binary[(s_binary == 1) | (sxbinary == 1)] = 1
-
-        
-
-        h, w = img.shape[:2]
-        img_size = (w, h)
-
-        src = np.float32([[w, h-10],    
-                        [0, h-10],    
-                        [546, 460],   
-                        [732, 460]])  
-        dst = np.float32([[w, h],       
-                        [0, h],       
-                        [0, 0],       
-                        [w, 0]])  
-
-        unwarped, M, Minv = unwarp(combined_binary, src, dst ,img_size)  
-
-        left_fit, right_fit, left, right, pic= fit_polynomial(unwarped, M, Minv, img, undistorted)
-
-        output = draw_back_onto_the_road(undistort_clean, Minv, left_fit, right_fit)
-       
-        plt.imshow(output, cmap='gray')
-        plt.show()
-        
-
-
-        
-
 if __name__ == "__main__":
 
+    print("Now calibrating our camera using a checkers board...\n")
     calibrateCamera()
-    binary()
+
+    print("Now processing our test images and saving them to 'output_images' folder...\n")
+    testImagesProcessing()
+
+    print("Now processing our test videos and saving them to 'output_videos' folder...\n")
+    testVideosProcessing()
