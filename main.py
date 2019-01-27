@@ -28,19 +28,8 @@ def undistort(img):
     return dst
 
 
-def warp(undist, img):
-
-    h, w = img.shape[:2]
-
-    src = np.float32([[w, h-10],    
-                    [0, h-10],    
-                    [546, 460],   
-                    [732, 460]])  
-    dst = np.float32([[w, h],       
-                    [0, h],       
-                    [0, 0],       
-                    [w, 0]]) 
-                                    
+def warp(undist, src, dst, w, h):
+                 
     M = cv2.getPerspectiveTransform(src, dst)
     Minv = cv2.getPerspectiveTransform(dst, src)
     warped = cv2.warpPerspective(undist, M, (w,h))
@@ -87,6 +76,7 @@ def calibrateCamera():
     objp = np.zeros((nx*ny, 3), np.float32 )
     objp[:,:2] = np.mgrid[0:nx, 0:ny].T.reshape(-1,2)
 
+    output_path = 'output_camera_cal/'
     path = 'camera_cal/'
     files = os.listdir(path)
 
@@ -119,7 +109,9 @@ def calibrateCamera():
                                             [offset, img_size[1]-offset]])
 
             # This is the warped chess board as a output for testing
-            #warped = warp(undistorted, src, dst, img_size)
+            warped, _, _ = warp(undistorted, src, dst, img_size[0], img_size[1])
+
+            plt.imsave(output_path+name, warped)
 
 def findLanePixels(binary_warped):
     # Take a histogram of the bottom half of the image
@@ -266,7 +258,7 @@ def fitLinesOnRoad(img_undistorted, Minv, left_fit, right_fit):
 
     blend_onto_road = cv2.addWeighted(img_undistorted, 1., road_dewarped, 0.3, 0)
 
-    def draw(img, fitting, color=(255, 0, 0), line_width=50):
+    def draw(img, fitting, color=(255, 0, 0), line_width=30):
        
         h, w, c = img.shape
 
@@ -318,7 +310,18 @@ def processPipeline(img):
 
     combined_binary = combinedBinary(undistorted) 
 
-    warped, M, Minv = warp(combined_binary, img)  
+    h, w = img.shape[:2]
+
+    src = np.float32([[w, h-10],    
+                    [0, h-10],    
+                    [546, 460],   
+                    [732, 460]])  
+    dst = np.float32([[w, h],       
+                    [0, h],       
+                    [0, 0],       
+                    [w, 0]]) 
+
+    warped, M, Minv = warp(combined_binary, src, dst, w, h)  
 
     left_fit, right_fit, left_radius, right_radius, center_offset = fitPolynomial(warped, M, Minv, img, undistorted)
 
@@ -375,7 +378,6 @@ if __name__ == "__main__":
         python3 main.py
 
     """
-
 
     print("Now calibrating our camera using a checkers board...\n")
     # calibrating the camera
