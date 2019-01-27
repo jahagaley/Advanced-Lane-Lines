@@ -304,6 +304,16 @@ def fitLinesOnRoad(img_undistorted, Minv, left_fit, right_fit):
 
 def processPipeline(img): 
 
+    # varibles to smoothen things out 
+    left_fit_list = []
+    right_fit_list = []
+
+    left_radius_list = []
+    right_radius_list = []
+
+    lane_curvature = []
+
+    # starting pipeline for processing images
     undistorted = undistort(img)
 
     combined_binary = combinedBinary(undistorted) 
@@ -312,12 +322,20 @@ def processPipeline(img):
 
     left_fit, right_fit, left_radius, right_radius, center_offset = fitPolynomial(warped, M, Minv, img, undistorted)
 
-    final_output = fitLinesOnRoad(undistorted, Minv, left_fit, right_fit)
+    left_fit_list.append(left_fit)
+    right_fit_list.append(right_fit)
 
-    mean_curvature = np.mean([left_radius, right_radius])
+    left_radius_list.append(left_radius)
+    right_radius_list.append(right_radius)
+
+    final_output = fitLinesOnRoad(undistorted, Minv, np.mean(left_fit_list, axis=0), np.mean(right_fit_list, axis=0))
+
+    mean_curvature = np.mean([np.mean(left_radius_list, axis=0), np.mean(right_radius_list, axis=0)])
+
+    lane_curvature.append(mean_curvature)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
-    cv2.putText(final_output, 'Lane curvature radius: {:.02f}m'.format(mean_curvature), (50, 60), font, 2, (255, 255, 255), 2, cv2.LINE_AA)
+    cv2.putText(final_output, 'Lane curvature radius: {:.02f}m'.format(np.mean(lane_curvature)), (50, 60), font, 2, (255, 255, 255), 2, cv2.LINE_AA)
     cv2.putText(final_output, 'Vehicle offset from center: {:.02f}m'.format(center_offset), (50, 130), font, 2, (255, 255, 255), 2, cv2.LINE_AA)
 
     return final_output
@@ -351,11 +369,22 @@ def testVideosProcessing():
         
 if __name__ == "__main__":
 
+    """
+
+    To run please run the following command:
+        python3 main.py
+
+    """
+
+
     print("Now calibrating our camera using a checkers board...\n")
+    # calibrating the camera
     calibrateCamera()
 
     print("Now processing our test images and saving them to 'output_images' folder...\n")
+    # output images saved in 'output_images' folder
     testImagesProcessing()
 
     print("Now processing our test videos and saving them to 'output_videos' folder...\n")
+    # output images saved in 'output_videos' folder
     testVideosProcessing()
